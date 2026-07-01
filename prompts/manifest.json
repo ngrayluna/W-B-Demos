@@ -1,0 +1,10 @@
+{
+  "name": "calendar-assistant-prompt",
+  "version_description": "Initial prompt for multi-turn calendar scheduling demo",
+  "model": "openai:gpt-4o-mini",
+  "prompt_file": "prompt.md",
+  "agent_name": "Calendar Assistant",
+  "artifact_type": "prompt",
+  "registry": "Calendar Assistant",
+  "collection": "Prompts"
+}
