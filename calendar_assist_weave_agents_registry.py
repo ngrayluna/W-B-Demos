@@ -181,21 +181,16 @@ def ensure_openai_api_key() -> None:
 
 
 def main(args) -> None:
-    
-    prompt, prompt_manifest = load_prompt_package(args.prompt_dir)
-    model = os.getenv(
-        "CALENDAR_ASSISTANT_MODEL",
-        prompt_manifest.get("model", "openai:gpt-4o-mini"),
-    )
-    agent_name = os.getenv(
-        "CALENDAR_ASSISTANT_AGENT_NAME",
-        prompt_manifest.get("agent_name", "Calendar Assistant"),
-    )
 
     ensure_openai_api_key()
-    weave.init(WEAVE_PROJECT)
-
+    
     print("Calendar Assistant is running with Weave Agents tracking...")
+
+    prompt, prompt_manifest = load_prompt_package(args.prompt_dir)
+    model = prompt_manifest.get("model"),
+    agent_name = prompt_manifest.get("agent_name"),
+
+    weave.init(WEAVE_PROJECT)
 
     agent = build_agent(model, agent_name, prompt)
     message_history: list[ModelMessage] | None = None
