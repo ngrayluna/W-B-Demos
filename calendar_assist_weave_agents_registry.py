@@ -20,24 +20,8 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
 
 WEAVE_PROJECT = os.getenv("WANDB_WEAVE_PROJECT", "wandb/pydantic_demo")
-
-
 TIME_SLOTS_PATH = Path(__file__).with_name("time_slots.json")
 DEFAULT_PROMPT_DIR = Path(__file__).with_name("prompts")
-
-
-def parse_args() -> Namespace:
-    """Parse command line arguments for the demo."""
-    parser = ArgumentParser(
-        description="Run the calendar assistant with Weave Agents tracking."
-    )
-    parser.add_argument(
-        "--prompt-dir",
-        type=Path,
-        default=DEFAULT_PROMPT_DIR,
-        help="Directory containing manifest.json and the prompt markdown file.",
-    )
-    return parser.parse_args()
 
 
 def load_prompt_package(prompt_dir: Path) -> tuple[str, dict[str, Any]]:
@@ -45,6 +29,7 @@ def load_prompt_package(prompt_dir: Path) -> tuple[str, dict[str, Any]]:
     with (prompt_dir / "manifest.json").open(encoding="utf-8") as manifest_file:
         manifest = json.load(manifest_file)
 
+    # Read the prompt text from the file specified in the manifest
     prompt_filename = manifest["prompt_file"]
     prompt_file = prompt_dir / prompt_filename
 
@@ -52,18 +37,10 @@ def load_prompt_package(prompt_dir: Path) -> tuple[str, dict[str, Any]]:
     return prompt, manifest
 
 
-def manifest_str(manifest: dict[str, Any], key: str, default: str = "") -> str:
-    """Read a string value from the prompt manifest."""
-    value = manifest.get(key)
-    if value is None:
-        return default
-    return str(value)
-
-
-def prompt_registry_target(manifest: dict[str, Any]) -> str:
+def prompt_registry_path(manifest: dict[str, Any]) -> str:
     """Build the W&B Registry target path from prompt manifest metadata."""
-    registry = manifest_str(manifest, "registry")
-    collection = manifest_str(manifest, "collection")
+    registry = manifest.get("registry")  # Ensure the key exists
+    collection = manifest.get("collection")  # Ensure the key exists
     return f"wandb-registry-{registry}/{collection}" if registry and collection else ""
 
 
@@ -203,16 +180,16 @@ def ensure_openai_api_key() -> None:
         raise SystemExit("Set OPENAI_API_KEY before running the demo.")
 
 
-def main() -> None:
-    args = parse_args()
+def main(args) -> None:
+    
     prompt, prompt_manifest = load_prompt_package(args.prompt_dir)
     model = os.getenv(
         "CALENDAR_ASSISTANT_MODEL",
-        manifest_str(prompt_manifest, "model", "openai:gpt-4o-mini"),
+        prompt_manifest.get("model", "openai:gpt-4o-mini"),
     )
     agent_name = os.getenv(
         "CALENDAR_ASSISTANT_AGENT_NAME",
-        manifest_str(prompt_manifest, "agent_name", "Calendar Assistant"),
+        prompt_manifest.get("agent_name", "Calendar Assistant"),
     )
 
     ensure_openai_api_key()
@@ -228,9 +205,9 @@ def main() -> None:
         model=model,
         conversation_name="calendar-assistant-demo",
         attributes={
-            "prompt.name": manifest_str(prompt_manifest, "name"),
-            "prompt.artifact_type": manifest_str(prompt_manifest, "artifact_type"),
-            "prompt.registry_target": prompt_registry_target(prompt_manifest),
+            "prompt.name": prompt_manifest.get("name", ""),
+            "prompt.artifact_type": prompt_manifest.get("artifact_type", ""),
+            "prompt.registry_target": prompt_registry_path(prompt_manifest),
         },
     ):
         message_history = run_turn(
@@ -253,4 +230,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser(
+        description="Run the calendar assistant with Weave Agents tracking."
+    )
+    parser.add_argument(
+        "--prompt-dir",
+        type=Path,
+        default=DEFAULT_PROMPT_DIR,
+        help="Directory containing manifest.json and the prompt markdown file.",
+    )
+    args = parser.parse_args()
+    main(args)
