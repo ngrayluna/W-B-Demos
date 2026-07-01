@@ -140,29 +140,36 @@ def run_turn(
     return list(result.all_messages())
 
 
-def ensure_openai_api_key() -> None:
+def check_openai_api_key() -> None:
     """Exit before running the demo if OpenAI credentials are unavailable."""
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("Set OPENAI_API_KEY before running the demo.")
 
 
 def main() -> None:
-    ensure_openai_api_key()
+    # Check OpenAI API key is set
+    check_openai_api_key()
+
     print("Calendar Assistant is running...")
 
+    # Build the agent with its registered tools.
     agent = build_agent()
+
+    # Define a list of type ModelMessage to hold the message history for the conversation.
     message_history: list[ModelMessage] | None = None
 
+    # Run a few turns of the agent with user input.
     message_history = run_turn(
-        agent,
-        "I want to schedule a meeting next week. Can you help me find available time slots?",
-        message_history,
+        agent = agent,
+        user_input = "I want to schedule a meeting next week. Can you help me find available time slots?",
+        message_history = message_history,
     )
 
+    # Pass the message history to the next turn to maintain context.
     message_history = run_turn(
-        agent,
-        "Wednesday afternoon for 30 minutes.",
-        message_history,
+        agent = agent,
+        user_input = "Wednesday afternoon for 30 minutes.",
+        message_history = message_history,
     )
 
 
