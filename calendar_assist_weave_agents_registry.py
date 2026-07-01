@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from argparse import ArgumentParser, Namespace
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -19,30 +20,16 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
 
-WEAVE_PROJECT = os.getenv("WANDB_WEAVE_PROJECT", "wandb/pydantic_demo")
+WEAVE_PROJECT = os.getenv("WANDB_WEAVE_PROJECT", default="wandb/pydantic_demo")
 TIME_SLOTS_PATH = Path(__file__).with_name("time_slots.json")
 DEFAULT_PROMPT_DIR = Path(__file__).with_name("prompts")
 
-
-def load_prompt_package(prompt_dir: Path) -> tuple[str, dict[str, Any]]:
-    """Load the prompt text and manifest metadata from the prompt package."""
-    with (prompt_dir / "manifest.json").open(encoding="utf-8") as manifest_file:
-        manifest = json.load(manifest_file)
-
-    # Read the prompt text from the file specified in the manifest
-    prompt_filename = manifest["prompt_file"]
-    prompt_file = prompt_dir / prompt_filename
-
-    prompt = prompt_file.read_text(encoding="utf-8")
-    return prompt, manifest
-
-
-def prompt_registry_path(manifest: dict[str, Any]) -> str:
-    """Build the W&B Registry target path from prompt manifest metadata."""
-    registry = manifest.get("registry")  # Ensure the key exists
-    collection = manifest.get("collection")  # Ensure the key exists
-    return f"wandb-registry-{registry}/{collection}" if registry and collection else ""
-
+@dataclass
+class CalendarAgent:
+    agent: Agent
+    model: str
+    agent_name: str
+    prompt: str
 
 class AvailabilitySearchInput(BaseModel):
     day_of_week: str | None = Field(
@@ -59,7 +46,6 @@ class AvailabilitySearchInput(BaseModel):
         description="The duration of the meeting in minutes.",
     )
 
-
 def load_available_time_slots(path: Path = TIME_SLOTS_PATH) -> dict[str, list[str]]:
     """Load available slots from disk, grouped by uppercase weekday."""
     with path.open(encoding="utf-8") as slot_file:
@@ -73,10 +59,6 @@ def load_available_time_slots(path: Path = TIME_SLOTS_PATH) -> dict[str, list[st
         slots_by_day.setdefault(day, []).append(time)
 
     return slots_by_day
-
-
-AVAILABLE_TIME_SLOTS = load_available_time_slots()
-
 
 def matches_time_of_day(slot_time: str, time_of_day: str | None) -> bool:
     if time_of_day is None or time_of_day.lower() == "any":
@@ -96,6 +78,8 @@ def matches_time_of_day(slot_time: str, time_of_day: str | None) -> bool:
 
     return True
 
+
+AVAILABLE_TIME_SLOTS = load_available_time_slots()
 
 def find_available_slots(
     day_of_week: str | None = None,
@@ -137,7 +121,7 @@ def find_available_slots(
         return slots
 
 
-def build_agent(model: str, agent_name: str, prompt: str) -> Agent:
+def build_agent(model: str, agent_name: str, prompt: str) -> CalendarAgent:
     """Build the calendar assistant and register its local tools."""
     calendar_agent = Agent(
         model=model,
@@ -146,15 +130,17 @@ def build_agent(model: str, agent_name: str, prompt: str) -> Agent:
         instructions=prompt,
     )
     calendar_agent.tool_plain(find_available_slots)
-    return calendar_agent
+    return CalendarAgent(
+        agent=calendar_agent,
+        model=model,
+        agent_name=agent_name,
+        prompt=prompt,
+    )
 
 
 def run_turn(
-    agent: Agent,
+    calendar_agent: CalendarAgent,
     user_input: str,
-    model: str,
-    agent_name: str,
-    prompt: str,
     message_history: Sequence[ModelMessage] | None = None,
 ) -> list[ModelMessage]:
     """Run one user turn and record it as a Weave Agents turn."""
@@ -164,62 +150,64 @@ def run_turn(
     # is tracked in the Weave Agents view.
     with weave.start_turn(
         user_message=user_input,
-        model=model,
-        agent_name=agent_name,
-        system_instructions=[prompt],
+        model=calendar_agent.model,
+        agent_name=calendar_agent.agent_name,
+        system_instructions=[calendar_agent.prompt],
     ):
-        result = agent.run_sync(user_input, message_history=message_history)
+        result = calendar_agent.agent.run_sync(
+            user_input,
+            message_history=message_history,
+        )
 
     print(f"Assistant: {result.output}")
     return list(result.all_messages())
 
 
-def ensure_openai_api_key() -> None:
-    """Exit before running the demo if OpenAI credentials are unavailable."""
-    if not os.getenv("OPENAI_API_KEY"):
-        raise SystemExit("Set OPENAI_API_KEY before running the demo.")
+def load_prompt_info(prompt_dir: Path) -> tuple[str, dict[str, Any]]:
+    """Load the prompt text and manifest metadata from the prompt directory."""
+    with (prompt_dir / "manifest.json").open(encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
 
+    # Read the prompt text from the file specified in the manifest
+    prompt_file = prompt_dir / manifest["prompt_file"]
+    prompt = prompt_file.read_text(encoding="utf-8")
 
-def main(args) -> None:
+    return prompt, manifest
 
-    ensure_openai_api_key()
+def main(args: Namespace) -> None:
     
     print("Calendar Assistant is running with Weave Agents tracking...")
 
-    prompt, prompt_manifest = load_prompt_package(args.prompt_dir)
-    model = prompt_manifest.get("model"),
-    agent_name = prompt_manifest.get("agent_name"),
+    # Load the prompt and manifest metadata from the specified prompt directory
+    prompt, manifest = load_prompt_info(args.prompt_dir)
+    model = manifest.get("model")
+    agent_name = manifest.get("agent_name")
+    registry_target = f"wandb-registry-{manifest.get('registry')}/{manifest.get('collection')}"
 
     weave.init(WEAVE_PROJECT)
 
-    agent = build_agent(model, agent_name, prompt)
+    calendar_agent = build_agent(model, agent_name, prompt)
     message_history: list[ModelMessage] | None = None
 
     with weave.start_conversation(
-        agent_name=agent_name,
-        model=model,
+        agent_name=calendar_agent.agent_name,
+        model=calendar_agent.model,
         conversation_name="calendar-assistant-demo",
         attributes={
-            "prompt.name": prompt_manifest.get("name", ""),
-            "prompt.artifact_type": prompt_manifest.get("artifact_type", ""),
-            "prompt.registry_target": prompt_registry_path(prompt_manifest),
+            "prompt.name": manifest.get("name", ""),
+            "prompt.artifact_type": manifest.get("artifact_type", ""),
+            "prompt.registry_target": registry_target,
         },
     ):
         message_history = run_turn(
-            agent,
+            calendar_agent,
             "I want to schedule a meeting next week. Can you help me find available time slots?",
-            model,
-            agent_name,
-            prompt,
             message_history,
         )
 
         message_history = run_turn(
-            agent,
+            calendar_agent,
             "Wednesday afternoon for 30 minutes.",
-            model,
-            agent_name,
-            prompt,
             message_history,
         )
 
