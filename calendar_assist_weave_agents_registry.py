@@ -21,7 +21,7 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
 
 ENTITY = "wandb"
-PROJECT = "pydantic_demo"
+PROJECT = "pydanticai_demo"
 WEAVE_PROJECT = f"{ENTITY}/{PROJECT}"
 
 DEFAULT_PROMPT_DIR = Path(__file__).with_name("prompts")
@@ -98,38 +98,47 @@ def main(args: Namespace) -> None:
     model = manifest.get("model")
     agent_name = manifest.get("agent_name")
     registry_target = f"wandb-registry-{manifest.get('registry')}/{manifest.get('collection')}"
+    base_dir = Path(__file__).resolve().parent
 
-    # Initialize a Weights & Biases run to link the prompt artifact to the W&B Registry, and store the artifact reference in the manifest for tracking purposes.
-    with wandb.init(entity = ENTITY, project=PROJECT, job_type="link calendar agent prompts to registry") as wandb_run:
-        artifact = wandb.Artifact(
+    with wandb.init(entity=ENTITY, project=PROJECT, job_type="publish-code") as run:
+        code_artifact = wandb.Artifact(name="calendar-assistant-code", type="code")
+        code_artifact.add_dir(str(base_dir / "tools"), name="tools")
+        code_artifact.add_file(str(base_dir / "calendar_assist_weave_agents_registry.py"))
+        code_artifact.add_file(str(base_dir / "requirements.txt"))
+        logged_code_artifact = run.log_artifact(code_artifact)
+        logged_code_artifact.wait() # Wait for the artifact to finish logging before proceeding
+
+        # Store the artifact reference in the manifest for tracking purposes
+        code_artifact_ref = logged_code_artifact.qualified_name
+
+    # Initialize a W&B run, log and link the prompt artifact to the W&B Registry,
+    # and store the artifact reference in the manifest for tracking purposes.
+    with wandb.init(entity=ENTITY, project=PROJECT, job_type="publish-prompt") as run:
+        used_code_artifact = run.use_artifact(code_artifact_ref, type="code")
+
+        prompt_artifact = wandb.Artifact(
             name=manifest["name"],
             type=manifest.get("artifact_type", "prompt"),
             description=manifest.get("version_description"),
-            metadata=manifest,
+            metadata={**manifest, "code_artifact_ref": used_code_artifact.qualified_name},
         )
-        artifact.add_dir(str(args.prompt_dir))
+        prompt_artifact.add_dir(str(args.prompt_dir))
 
-        # Link the artifact to the W&B Registry with the specified target path and alias
-        prompt_artifact = wandb_run.link_artifact(artifact=artifact, target_path=registry_target, aliases=["latest"])
+        linked_prompt = run.link_artifact(
+            artifact=prompt_artifact,
+            target_path=registry_target,
+            aliases=["latest"],
+        )
+
+        # Wait for the linked prompt artifact to finish logging before proceeding
+        linked_prompt.wait()
 
         # Store the artifact reference in the manifest for tracking purposes
-        prompt_artifact_ref = prompt_artifact.qualified_name
+        prompt_artifact_ref = linked_prompt.qualified_name
 
-        code_artifact = wandb.Artifact(
-            name="code",
-            type="code",
-            description="Code for the calendar assistant demo with Weave Agents tracking.",
-        )
-        code_artifact.add_dir("./tools")
-        code_artifact.add_file("./calendar_assist_weave_agents_registry.py")
-        code_artifact.add_file("./requirements.txt")
-        logged_code_artifact = wandb_run.log_artifact(code_artifact)
-        logged_code_artifact.wait()
-        code_artifact_ref = logged_code_artifact.qualified_name
-
-        # Build the calendar assistant agent with the loaded prompt and model
-        calendar_agent = build_agent(model, agent_name, prompt)
-        message_history: list[ModelMessage] | None = None
+    # Build the calendar assistant agent with the loaded prompt and model
+    calendar_agent = build_agent(model, agent_name, prompt)
+    message_history: list[ModelMessage] | None = None
 
     weave.init(WEAVE_PROJECT)
     with weave.start_conversation(
