@@ -16,10 +16,13 @@ from tools.availability import find_available_slots
 from typing import Any, Sequence
 
 import weave
+import wandb
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
 
-WEAVE_PROJECT = os.getenv("WANDB_WEAVE_PROJECT", default="wandb/pydantic_demo")
+ENTITY = "wandb"
+PROJECT = "pydantic_demo"
+WEAVE_PROJECT = f"{ENTITY}/{PROJECT}"
 
 DEFAULT_PROMPT_DIR = Path(__file__).with_name("prompts")
 
@@ -84,6 +87,7 @@ def load_prompt_info(prompt_dir: Path) -> tuple[str, dict[str, Any]]:
 
     return prompt, manifest
 
+
 def main(args: Namespace) -> None:
     
     print("Calendar Assistant is running with Weave Agents tracking...")
@@ -95,32 +99,43 @@ def main(args: Namespace) -> None:
     agent_name = manifest.get("agent_name")
     registry_target = f"wandb-registry-{manifest.get('registry')}/{manifest.get('collection')}"
 
-    # Build the calendar assistant agent with the loaded prompt and model
-    calendar_agent = build_agent(model, agent_name, prompt)
-    message_history: list[ModelMessage] | None = None
-
-    weave.init(WEAVE_PROJECT)
-    with weave.start_conversation(
-        agent_name=calendar_agent.agent_name,
-        model=calendar_agent.model,
-        conversation_name="calendar-assistant-demo",
-        attributes={
-            "prompt.name": manifest.get("name", ""),
-            "prompt.artifact_type": manifest.get("artifact_type", ""),
-            "prompt.registry_target": registry_target,
-        },
-    ):
-        message_history = run_turn(
-            calendar_agent,
-            "I want to schedule a meeting next week. Can you help me find available time slots?",
-            message_history,
+    with wandb.init(entity = ENTITY, project=PROJECT, job_type="link calendar agent prompts to registry") as wandb_run:
+        artifact = wandb.Artifact(
+            name=manifest["name"],
+            type=manifest.get("artifact_type", "prompt"),
+            description=manifest.get("version_description"),
+            metadata=manifest,
         )
+        artifact.add_dir(str(args.prompt_dir))
+        prompt_artifact = wandb_run.link_artifact(artifact=artifact, target_path=registry_target, aliases=["latest"])
 
-        message_history = run_turn(
-            calendar_agent,
-            "Wednesday afternoon for 30 minutes.",
-            message_history,
-        )
+        # Build the calendar assistant agent with the loaded prompt and model
+        calendar_agent = build_agent(model, agent_name, prompt)
+        message_history: list[ModelMessage] | None = None
+
+        weave.init(WEAVE_PROJECT)
+        with weave.start_conversation(
+            agent_name=calendar_agent.agent_name,
+            model=calendar_agent.model,
+            conversation_name="calendar-assistant-demo",
+            attributes={
+                "prompt.name": manifest.get("name", ""),
+                "prompt.artifact_type": manifest.get("artifact_type", ""),
+                "prompt.artifact_ref": prompt_artifact.qualified_name,
+                "prompt.registry_target": registry_target,
+            },
+        ):
+            message_history = run_turn(
+                calendar_agent,
+                "I want to schedule a meeting next week. Can you help me find available time slots?",
+                message_history,
+            )
+
+            message_history = run_turn(
+                calendar_agent,
+                "Wednesday afternoon for 30 minutes.",
+                message_history,
+            )
 
 
 if __name__ == "__main__":

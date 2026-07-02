@@ -1,2 +1,3 @@
 pydantic-ai-slim[openai]
+wandb
 weave
