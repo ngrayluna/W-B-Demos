@@ -115,15 +115,17 @@ def main(args: Namespace) -> None:
         # Store the artifact reference in the manifest for tracking purposes
         prompt_artifact_ref = prompt_artifact.qualified_name
 
-        artifact = wandb.Artifact(
+        code_artifact = wandb.Artifact(
             name="code",
             type="code",
             description="Code for the calendar assistant demo with Weave Agents tracking.",
         )
-        artifact.add_file("./tools/availability.py")
-        artifact.add_file("./calendar_assist_weave_agents_registry.py")
-        artifact.add_file("./requirements.txt")
-
+        code_artifact.add_dir("./tools")
+        code_artifact.add_file("./calendar_assist_weave_agents_registry.py")
+        code_artifact.add_file("./requirements.txt")
+        logged_code_artifact = wandb_run.log_artifact(code_artifact)
+        logged_code_artifact.wait()
+        code_artifact_ref = logged_code_artifact.qualified_name
 
         # Build the calendar assistant agent with the loaded prompt and model
         calendar_agent = build_agent(model, agent_name, prompt)
@@ -139,6 +141,7 @@ def main(args: Namespace) -> None:
             "prompt.artifact_type": manifest.get("artifact_type", ""),
             "prompt.artifact_ref": prompt_artifact_ref,
             "prompt.registry_target": registry_target,
+            "code.artifact_ref": code_artifact_ref,
         },
     ):
         message_history = run_turn(
