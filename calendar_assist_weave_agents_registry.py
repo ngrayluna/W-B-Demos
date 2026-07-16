@@ -8,7 +8,6 @@ multi-turn conversation and each local tool execution for the Agents view.
 from __future__ import annotations
 
 import json
-import os
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass
 from pathlib import Path
@@ -136,11 +135,20 @@ def main(args: Namespace) -> None:
         # Store the artifact reference in the manifest for tracking purposes
         prompt_artifact_ref = linked_prompt.qualified_name
 
+    weave_client = weave.init(WEAVE_PROJECT)
+    weave_prompt_ref = weave.publish(
+        weave.StringPrompt(prompt),
+        name=manifest["name"]
+    )
+    weave_client.link_prompt_to_registry(
+        prompt=weave_prompt_ref,
+        target_path=registry_target
+    )
+
     # Build the calendar assistant agent with the loaded prompt and model
     calendar_agent = build_agent(model, agent_name, prompt)
     message_history: list[ModelMessage] | None = None
 
-    weave.init(WEAVE_PROJECT)
     with weave.start_conversation(
         agent_name=calendar_agent.agent_name,
         model=calendar_agent.model,
@@ -150,6 +158,7 @@ def main(args: Namespace) -> None:
             "prompt.artifact_type": manifest.get("artifact_type", ""),
             "prompt.artifact_ref": prompt_artifact_ref,
             "prompt.registry_target": registry_target,
+            "prompt.weave_ref": weave_prompt_ref.uri,
             "code.artifact_ref": code_artifact_ref,
         },
     ):
