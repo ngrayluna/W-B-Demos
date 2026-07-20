@@ -112,6 +112,8 @@ def main(args: Namespace) -> None:
 
     # Initialize a W&B run, log and link the prompt artifact to the W&B Registry,
     # and store the artifact reference in the manifest for tracking purposes.
+    # NOTE: This is the old way of logging artifacts to the W&B Registry.
+    # The new way is to use the `weave.publish` + `weave.link_prompt_to_registry` methods below.
     with wandb.init(entity=ENTITY, project=PROJECT, job_type="publish-prompt") as run:
         used_code_artifact = run.use_artifact(code_artifact_ref, type="code")
 
@@ -135,6 +137,7 @@ def main(args: Namespace) -> None:
         # Store the artifact reference in the manifest for tracking purposes
         prompt_artifact_ref = linked_prompt.qualified_name
 
+    # Initialize Weave, publish the prompt to Weave, and link it to the W&B Registry
     weave_client = weave.init(WEAVE_PROJECT)
     weave_prompt_ref = weave.publish(
         weave.StringPrompt(prompt),
