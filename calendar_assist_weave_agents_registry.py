@@ -4,9 +4,6 @@ Calendar assistant demo with Weave's Agents conversation/turn tracking.
 This keeps Pydantic AI in charge of the agent loop, while Weave records the
 multi-turn conversation and each local tool execution for the Agents view.
 """
-
-from __future__ import annotations
-
 import json
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass
@@ -23,7 +20,8 @@ ENTITY = "wandb"
 PROJECT = "pydanticai_demo"
 WEAVE_PROJECT = f"{ENTITY}/{PROJECT}"
 
-DEFAULT_PROMPT_DIR = Path(__file__).with_name("prompts")
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_PROMPT_DIR = BASE_DIR / "prompts"
 
 @dataclass
 class CalendarAgent:
@@ -97,13 +95,12 @@ def main(args: Namespace) -> None:
     model = manifest.get("model")
     agent_name = manifest.get("agent_name")
     registry_target = f"wandb-registry-{manifest.get('registry')}/{manifest.get('collection')}"
-    base_dir = Path(__file__).resolve().parent
 
     with wandb.init(entity=ENTITY, project=PROJECT, job_type="publish-code") as run:
         code_artifact = wandb.Artifact(name="calendar-assistant-code", type="code")
-        code_artifact.add_dir(str(base_dir / "tools"), name="tools")
-        code_artifact.add_file(str(base_dir / "calendar_assist_weave_agents_registry.py"))
-        code_artifact.add_file(str(base_dir / "requirements.txt"))
+        code_artifact.add_dir(str(BASE_DIR / "tools"), name="tools")
+        code_artifact.add_file(str(BASE_DIR / "calendar_assist_weave_agents_registry.py"))
+        code_artifact.add_file(str(BASE_DIR / "requirements.txt"))
         logged_code_artifact = run.log_artifact(code_artifact)
         logged_code_artifact.wait() # Wait for the artifact to finish logging before proceeding
 
